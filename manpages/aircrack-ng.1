@@ -1,4 +1,4 @@
-.TH AIRCRACK-NG 1 "February 2008" "Version 0.9.3"
+.TH AIRCRACK-NG 1 "February 2008" "Version 1.0-beta2"
 
 .SH NAME
 aircrack-ng - a 802.11 WEP / WPA-PSK key cracker
@@ -30,6 +30,9 @@ Set this option to the number of CPUs to use (only available on SMP systems). By
 .TP
 .I -q
 If set, no status information is displayed.
+.TP
+.I -C <macs>
+Merges all those APs MAC (separated by a comma) into a virtual one.
 .PP
 .TP
 .B Static WEP cracking options:
@@ -80,7 +83,16 @@ Shows ASCII version of the key at the right of the screen
 This is an experimental single brute-force attack which should only be used when the standard attack mode fails with more than one million IVs.
 .TP
 .I -z  
-Uses PTW (Andrei Pyshkin, Erik Tews and Ralf-Philipp Weinmann) attack.
+Uses PTW (Andrei Pyshkin, Erik Tews and Ralf-Philipp Weinmann) attack (default attack).
+.TP
+.I -P <num>
+PTW debug: 1 Disable klein, 2 PTW.
+.TP
+.I -K
+Use KoreK attacks instead of PTW.
+.TP
+.I -D
+WEP decloak mode.
 .PP
 .TP
 .B WPA-PSK cracking options:
@@ -93,20 +105,32 @@ Permission is granted to copy, distribute and/or modify this document under the 
 On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.
 .SH SEE ALSO
 .br
-.B airmon-ng(1)
-.br
 .B airdecap-ng(1)
+.br
+.B airdriver-ng(1)
 .br
 .B aireplay-ng(1)
 .br
+.B airmon-ng(1)
+.br
 .B airodump-ng(1)
+.br
+.B airolib-ng(1)
+.br
+.B airsev-ng(1)
 .br
 .B airtun-ng(1)
 .br
-.B packetforge-ng(1)
+.B buddy-ng(1)
+.br
+.B easside-ng(1)
 .br
 .B ivstools(1)
 .br
 .B kstats(1)
 .br
-.B makeivs(1)
+.B makeivs-ng(1)
+.br
+.B packetforge-ng(1)
+.br
+.B wesside-ng(1)

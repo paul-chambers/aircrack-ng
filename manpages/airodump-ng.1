@@ -1,4 +1,4 @@
-.TH AIRODUMP-NG 1 "February 2008" "Version 0.9.3"
+.TH AIRODUMP-NG 1 "February 2008" "Version 1.0-beta2"
 
 .SH NAME
 airodump-ng - a packet capture tool for aircrack-ng
@@ -29,6 +29,15 @@ It will record all beacons into the cap file (by default it only records one).
 .I -u <secs>, --update <secs>
 Delay <secs> seconds delay between display updates (default: 1 second). Useful for slow CPU.
 .TP
+.I --showack
+Prints ACK/CTS/RTS statistics. Helps in debugging and general injection optimization. It is indication if you inject, inject too fast, reach the AP, the frames are valid encrypted frames. Allows to detect "hidden" stations, which are too far away to capture high bitrate frames, as ACK frames are sent at 1Mbps.
+.TP
+.I -h
+Hides known stations for \-\-showack.
+.TP
+.I --berlin <secs>
+Time before removing the AP/client from the screen when no more packets are received (Default: 120 seconds). See airodump-ng source for more details about this option ;).
+.TP
 .I -c <channel>[,<channel>[,...]], --channel <channel>[,<channel>[,...]]
 Indicate the channel(s) to listen to. By default airodump-ng hop on all 2.4Ghz channels.
 .TP
@@ -37,6 +46,9 @@ Indicate the band on which airodump-ng should hop. It can be a combination of 'a
 .TP
 .I -s <method>, --cswitch <method>
 Defines the way airodump-ng sets the channels when using more than one card. Valid values: 0, 1 or 2.
+.TP
+.I -r <file>
+Reads packet from a file.
 .PP
 .B Filter options:
 .TP
@@ -74,7 +86,7 @@ BSSID              STATION            PWR  Lost  Packets  Probes
 .PP
 00:14:6C:7A:41:81  00:0F:B5:32:31:31   51     2       14
 (not associated)   00:14:A4:3F:8D:13   19     0        4  mossy
-00:14:6C:7A:41:81  00:0C:41:52:D1:D1   -1     0        5
+00:14:6C:7A:41:81  00:0C:41:52:D1:D1   \-1     0        5
 00:14:6C:7E:40:80  00:0F:B5:FD:FB:C2   35     0       99  teddy
 .br
 -----------------------------------------------------------------------
@@ -104,20 +116,32 @@ Permission is granted to copy, distribute and/or modify this document under the 
 On Debian systems, the complete text of the GNU General Public License can be found in /usr/share/common-licenses/GPL.
 .SH SEE ALSO
 .br
-.B airmon-ng(1)
+.B aircrack-ng(1)
 .br
 .B airdecap-ng(1)
 .br
-.B aircrack-ng(1)
-.br
-.B airtun-ng(1)
+.B airdriver-ng(1)
 .br
 .B aireplay-ng(1)
 .br
-.B packetforge-ng(1)
+.B airmon-ng(1)
+.br
+.B airolib-ng(1)
+.br
+.B airsev-ng(1)
+.br
+.B airtun-ng(1)
+.br
+.B buddy-ng(1)
+.br
+.B easside-ng(1)
 .br
 .B ivstools(1)
 .br
 .B kstats(1)
 .br
-.B makeivs(1)
+.B makeivs-ng(1)
+.br
+.B packetforge-ng(1)
+.br
+.B wesside-ng(1)

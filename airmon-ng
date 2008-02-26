@@ -8,7 +8,7 @@ IFACE_FOUND="false"
 MADWIFI=0
 MAC80211=0
 
-PROCESSES="wpa_action\|wpa_supplicant\|wpa_cli\|dhclient\|ifplugd\|dhcdbd\|NetworkManager\|knetworkmanager\|avahi-autoipd\|avahi-daemon"
+PROCESSES="wpa_action\|wpa_supplicant\|wpa_cli\|dhclient\|ifplugd\|dhcdbd\|NetworkManager\|knetworkmanager\|avahi-autoipd\|avahi-daemon|wlassistant"
 
 usage() {
 	printf "usage: `basename $0` <start|stop|check> <interface> [channel]\n"
@@ -38,7 +38,7 @@ getModule() {
         srcver1=`cat "/sys/class/net/$1/device/driver/module/srcversion"`
         for j in `lsmod | awk '{print $1}' | grep -v "^Module$"`
         do
-            srcver2="`modinfo $j | grep srcversion | awk '{print $2}'`"
+            srcver2="`modinfo $j 2>/dev/null | grep srcversion | awk '{print $2}'`"
             if [ $srcver1 = "$srcver2" ]
             then
                 MODULE=$j
@@ -64,7 +64,7 @@ getDriver() {
 
 scanProcesses() {
     match=`ps -A -o comm= | grep $PROCESSES | grep -v grep | wc -l`
-    if [ $match -gt 0 ]
+    if [ $match -gt 0 -a x"$1" != xkill ]
     then
         echo && echo
         echo "Found $match processes that could cause trouble."
@@ -73,7 +73,15 @@ scanProcesses() {
         echo
         echo "PID\tName"
     else
-        return
+        if [ x"$1" != xkill ]
+        then
+            return
+        fi
+    fi
+
+    if [ $match -gt 0 -a x"$1" = xkill ]
+    then
+        echo "Killing all those processes..."
     fi
 
     i=1
@@ -81,7 +89,12 @@ scanProcesses() {
     do
         pid=`ps -A -o pid= -o comm= | grep $PROCESSES | grep -v grep | head -n $i | tail -n 1 | awk '{print $1}'`
         pname=`ps -A -o pid= -o comm= | grep $PROCESSES | grep -v grep | head -n $i | tail -n 1 | awk '{print $2}'`
-        printf "$pid\t$pname\n"
+        if [ x"$1" != xkill ]
+        then
+            printf "$pid\t$pname\n"
+        else
+            kill $pid
+        fi
         i=$(($i+1))
     done
 }
@@ -241,6 +254,12 @@ then
 #         getDriver $iface
         checkProcessesIface $iface
     done
+
+    if [ x"$2" = xkill ]
+    then
+        scanProcesses "$2"
+    fi
+
     exit
 fi
 
@@ -403,7 +422,7 @@ do
 
  if [ x$DRIVER = "xipw2200" ] || [ x"`iwpriv $iface 2>/dev/null | grep sw_reset`" != "x" ]
  then
-    MODINFO=`modinfo ipw2200 2>/dev/null | awk '/^version/ {print $2}'`
+    MODINFO=`modinfo ipw2200  2>/dev/null | awk '/^version/ {print $2}'`
     if { echo "$MODINFO" | grep -E '^1\.0\.(0|1|2|3)$' ; }
     then
     	echo "Monitor mode not supported, please upgrade"
@@ -588,6 +607,10 @@ do
          startStdIface $iface $CH
          iwpriv $iface rfmontx 1
     fi
+    if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
+     then
+     	stopStdIface $iface
+    fi
     echo
     continue
 
@@ -603,6 +626,10 @@ do
          startStdIface $iface $CH
          iwpriv $iface rfmontx 1
     fi
+    if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
+     then
+     	stopStdIface $iface
+    fi    
     echo
     continue
 
@@ -618,6 +645,10 @@ do
          startStdIface $iface $CH
          iwpriv $iface rfmontx 1
     fi
+    if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
+     then
+     	stopStdIface $iface
+    fi    
     echo
     continue
 
@@ -795,6 +826,10 @@ do
     then
          startStdIface $iface $CH
     fi
+    if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
+     then
+     	stopStdIface $iface
+    fi    
     echo
     continue
 
@@ -808,6 +843,10 @@ do
      then
           startStdIface $iface $CH
      fi
+     if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
+      then
+      	 stopStdIface $iface
+     fi     
      echo
      continue
 
