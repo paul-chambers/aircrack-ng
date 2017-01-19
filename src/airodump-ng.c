@@ -91,32 +91,44 @@ void dump_print( int ws_row, int ws_col, int if_num );
 
 #ifndef DISABLE_INJECT_HOOK
 
+#define MAX_CONNECTIONS (10)
+#define LISTEN_SOCKET   (0)
 /*
-    If it is present, open a named fifo and return a file descriptor.
-    This nanmed fifo allows the injection of 'packets' into the log.
+    This socket allows the injection of 'packets' into the log.
     This allows external apps to insert timestamped metadata.
 */
-#define INJECT_FIFO "/tmp/pcap-inject"
-
 static struct sockaddr inject_sock = { AF_UNIX, "/tmp/airodump" };
 
 int init_inject_hook( void )
 {
     int fd;
-    fd = socket( AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0 );
 
+    fd = socket( AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0 );
     if (fd == -1)
     {
-        perror( "socket creation failed" );
+        fprintf( stderr, "### unable to create the listen socket (%d: %s)\n", errno, strerror(errno));
     }
     else if ( bind( fd, &inject_sock, sizeof(inject_sock) ) == -1 )
     {
-        perror( "unable to bind socket" );
+        fprintf( stderr, "### unable to bind to the listen socket (%d: %s)\n", errno, strerror(errno));
         close( fd );
+        fd = -1;
+    }
+    else if ( listen( fd, 5 ) == -1 )
+    {
+        fprintf( stderr, "### cannot listen to the listen socket (%d: %s)\n", errno, strerror(errno));
+        close(fd);
         fd = -1;
     }
 
     return (fd);
+}
+
+void cleanup_inject_hook( int fd )
+{
+    if (fd != -1)
+        close( fd );
+    unlink( inject_sock.sa_data );
 }
 
 #endif
@@ -172,38 +184,46 @@ char * get_manufacturer_from_string(char * buffer)
 
 void textcolor(int attr, int fg, int bg)
 {
-    char command[13];
-    /* Command is the control command to the terminal */
-    snprintf(command, sizeof(command), "%c[%d;%d;%dm", 0x1B, attr, fg + 30, bg + 40);
-    fprintf(stderr, "%s", command);
-    fflush(stderr);
+    if (!G.quiet) {
+        /* Command is the control command to the terminal */
+        char command[13];
+
+        snprintf(command, sizeof(command), "%c[%d;%d;%dm", 0x1B, attr, fg + 30, bg + 40);
+        fprintf(stderr, "%s", command);
+        fflush(stderr);
+    }
 }
 
-void textcolor_fg(int fg)
-{
-    char command[13];
-    /* Command is the control command to the terminal */
-    snprintf(command, sizeof(command), "\033[%dm", fg + 30);
-    fprintf(stderr, "%s", command);
-    fflush(stderr);
+void textcolor_fg(int fg) {
+    if (!G.quiet) {
+        char command[13];
+        /* Command is the control command to the terminal */
+        snprintf(command, sizeof(command), "\033[%dm", fg + 30);
+        fprintf(stderr, "%s", command);
+        fflush(stderr);
+    }
 }
 
 void textcolor_bg(int bg)
 {
-    char command[13];
-    /* Command is the control command to the terminal */
-    snprintf(command, sizeof(command), "\033[%dm", bg + 40);
-    fprintf(stderr, "%s", command);
-    fflush(stderr);
+    if (!G.quiet) {
+        char command[13];
+        /* Command is the control command to the terminal */
+        snprintf(command, sizeof(command), "\033[%dm", bg + 40);
+        fprintf(stderr, "%s", command);
+        fflush(stderr);
+    }
 }
 
 void textstyle(int attr)
 {
-    char command[13];
-    /* Command is the control command to the terminal */
-    snprintf(command, sizeof(command), "\033[%im", attr);
-    fprintf(stderr, "%s", command);
-    fflush(stderr);
+    if (!G.quiet) {
+        char command[13];
+        /* Command is the control command to the terminal */
+        snprintf(command, sizeof(command), "\033[%im", attr);
+        fprintf(stderr, "%s", command);
+        fflush(stderr);
+    }
 }
 
 void reset_term()
@@ -232,6 +252,7 @@ int mygetch( )
 
 void resetSelection()
 {
+    G.quiet = 0;
     G.sort_by = SORT_BY_POWER;
     G.sort_inv = 1;
     G.start_print_ap=1;
@@ -242,7 +263,7 @@ void resetSelection()
     G.selection_sta=0;
     G.mark_cur_ap=0;
     G.skip_columns=0;
-    G.do_pause=0;
+    G.do_pause=1;
     G.do_sort_always=0;
     memset(G.selected_bssid, '\x00', 6);
 }
@@ -343,28 +364,30 @@ void input_thread( void *arg)
         {
             G.do_pause = (G.do_pause+1)%2;
 
-            if(G.do_pause)
-            {
-                snprintf(G.message, sizeof(G.message), "][ paused output");
-                pthread_mutex_lock( &(G.mx_print) );
-                fprintf( stderr, "\33[1;1H" );
-                dump_print( G.ws.ws_row, G.ws.ws_col, G.num_cards );
-                fprintf( stderr, "\33[J" );
-                fflush(stderr);
-                pthread_mutex_unlock( &(G.mx_print) );
+            if (!G.quiet) {
+                if (G.do_pause) {
+                    snprintf(G.message, sizeof(G.message), "][ paused output");
+                    pthread_mutex_lock(&(G.mx_print));
+                    fprintf(stderr, "\33[1;1H");
+                    dump_print(G.ws.ws_row, G.ws.ws_col, G.num_cards);
+                    fprintf(stderr, "\33[J");
+                    fflush(stderr);
+                    pthread_mutex_unlock(&(G.mx_print));
+                } else
+                    snprintf(G.message, sizeof(G.message), "][ resumed output");
             }
-            else
-                snprintf(G.message, sizeof(G.message), "][ resumed output");
         }
 
         if(keycode == KEY_r)
         {
             G.do_sort_always = (G.do_sort_always+1)%2;
 
-            if(G.do_sort_always)
-                snprintf(G.message, sizeof(G.message), "][ realtime sorting activated");
-            else
-                snprintf(G.message, sizeof(G.message), "][ realtime sorting deactivated");
+            if (!G.quiet) {
+                if (G.do_sort_always)
+                    snprintf(G.message, sizeof(G.message), "][ realtime sorting activated");
+                else
+                    snprintf(G.message, sizeof(G.message), "][ realtime sorting deactivated");
+            }
         }
 
         if(keycode == KEY_m)
@@ -469,7 +492,7 @@ void input_thread( void *arg)
             snprintf(G.message, sizeof(G.message), "][ reset selection to default");
         }
 
-        if(G.do_exit == 0 && !G.do_pause)
+        if(G.do_exit == 0 && !G.do_pause && !G.quiet)
         {
             pthread_mutex_lock( &(G.mx_print) );
             fprintf( stderr, "\33[1;1H" );
@@ -784,6 +807,8 @@ char usage[] =
     "                              fixed channel <interface>: -1\n"
     "      --write-interval\n"
     "                  <seconds> : Output file(s) write interval in seconds\n"
+    "      --quiet               : disable the console updates (easier to see errors\n"
+    "      -q                    : same as --quiet\n"
     "\n"
     "  Filter options:\n"
     "      --encrypt   <suite>   : Filter APs by cipher suite\n"
@@ -1361,7 +1386,7 @@ int remove_namac(unsigned char* mac)
 /*
     factored out of dump_add_packet
 */
-int write_one_packet( unsigned char *h80211, int caplen, int ri_power )
+int write_one_packet( unsigned char *raw_pkt, int caplen, int ri_power )
 {
     int                 n;
     struct pcap_pkthdr  pkh;
@@ -1373,6 +1398,7 @@ int write_one_packet( unsigned char *h80211, int caplen, int ri_power )
         gettimeofday( &tv, NULL );
         pkh.tv_sec  =   tv.tv_sec;
         pkh.tv_usec = ( tv.tv_usec & ~0x1ff ) + (ri_power << 6);
+
         n = sizeof( pkh );
 
         if ( fwrite( &pkh, 1, n, G.f_cap ) != (size_t) n )
@@ -1382,9 +1408,10 @@ int write_one_packet( unsigned char *h80211, int caplen, int ri_power )
         }
 
         fflush( stdout );
+
         n = pkh.caplen;
 
-        if ( fwrite( h80211, 1, n, G.f_cap ) != (size_t) n )
+        if ( fwrite( raw_pkt, 1, n, G.f_cap ) != (size_t) n )
         {
             perror( "fwrite(packet data) failed" );
             return( 1 );
@@ -3256,6 +3283,7 @@ void dump_print( int ws_row, int ws_col, int if_num )
      *  display the channel, battery, position (if we are connected to GPSd)
      *  and current time
      */
+
     memset( strbuf, '\0', sizeof(strbuf) );
     strbuf[ws_col - 1] = '\0';
     fprintf( stderr, "%s\n", strbuf );
@@ -3324,7 +3352,7 @@ void dump_print( int ws_row, int ws_col, int if_num )
     strncat(strbuf, "                                        ", (512-strlen(strbuf)));
     strbuf[ws_col - 1] = '\0';
     fprintf( stderr, "%s\n", strbuf );
-    /* print some informations about each detected AP */
+    /* print some information about each detected AP */
     nlines += 3;
 
     if( nlines >= ws_row )
@@ -5402,8 +5430,8 @@ void sighandler( int signum)
 
     if( signum == SIGSEGV )
     {
-        fprintf( stderr, "Caught signal 11 (SIGSEGV). Please"
-                 " contact the author!\33[?25h\n\n" );
+        fprintf( stderr, "Caught signal 11 (SIGSEGV)."
+                " Please contact the author!\33[?25h\n\n" );
         fflush( stdout );
         exit( 1 );
     }
@@ -5415,8 +5443,8 @@ void sighandler( int signum)
 #else
         dprintf( STDERR_FILENO,
 #endif
-                "Caught signal 14 (SIGALRM). Please"
-                " contact the author!\33[?25h\n\n" );
+                "Caught signal 14 (SIGALRM)."
+                " Please contact the author!\33[?25h\n\n" );
         _exit( 1 );
     }
 
@@ -5425,7 +5453,9 @@ void sighandler( int signum)
 
     if( signum == SIGWINCH )
     {
-        fprintf( stderr, "\33[2J" );
+        if (!G.quiet) {
+            fprintf(stderr, "\33[2J");
+        }
         fflush( stdout );
     }
 }
@@ -6318,6 +6348,9 @@ int main( int argc, char *argv[] )
     /*
     struct sockaddr_in provis_addr;
     */
+#ifndef DISABLE_INJECT_HOOK
+    int connection_fds[MAX_CONNECTIONS];
+#endif
     fd_set             rfds;
     static struct option long_options[] =
     {
@@ -6345,7 +6378,8 @@ int main( int argc, char *argv[] )
         {"manufacturer",  0, 0, 'M'},
         {"uptime",   0, 0, 'U'},
         {"write-interval", 1, 0, 'I'},
-        {"wps",  0, 0, 'W'},
+        {"wps",      0, 0, 'W'},
+        {"quiet",    0, 0, 'q'},
         {0,          0, 0,  0 }
     };
     pid_t main_pid = getpid();
@@ -6448,11 +6482,18 @@ int main( int argc, char *argv[] )
     for(i=0; i<MAX_CARDS; i++)
     {
         arptype[i]=0;
-        fd_raw[i]=-1;
+        fd_raw[i] = -1;
         G.channel[i]=0;
     }
 
-    memset(G.f_bssid, '\x00', 6);
+#ifndef DISABLE_INJECT_HOOK
+    for (i = 0; i < MAX_CONNECTIONS; ++i)
+    {
+        connection_fds[i] = -1;
+    }
+#endif
+
+    memset(G.f_bssid,   '\x00', 6);
     memset(G.f_netmask, '\x00', 6);
     memset(G.wpa_bssid, '\x00', 6);
 
@@ -6507,7 +6548,7 @@ int main( int argc, char *argv[] )
     {
         option_index = 0;
         option = getopt_long( argc, argv,
-                              "b:c:egiw:s:t:u:m:d:N:R:aHDB:Ahf:r:EC:o:x:MUI:W",
+                              "b:c:egiw:s:t:u:m:d:N:R:aHDB:Ahf:r:EC:o:x:MUI:Wq",
                               long_options, &option_index );
 
         if( option < 0 ) break;
@@ -6927,11 +6968,15 @@ int main( int argc, char *argv[] )
 
             break;
 
+        case 'q':
+            G.quiet = 1;
+            break;
+
         default :
             goto usage;
         }
-    }
-    while ( 1 );
+
+    } while ( 1 );
 
     if( argc - optind != 1 && G.s_file == NULL)
     {
@@ -7106,7 +7151,7 @@ usage:
     }
 
 #ifndef DISABLE_INJECT_HOOK
-    int fifo_fd = init_inject_hook();
+    connection_fds[LISTEN_SOCKET] = init_inject_hook();
 #endif
 
     /* Drop privileges */
@@ -7191,7 +7236,7 @@ usage:
         waitpid( -1, NULL, WNOHANG );
     }
 
-    fprintf( stderr, "\33[?25l\33[2J\n" );
+    if (!G.quiet) fprintf( stderr, "\33[?25l\33[2J\n" );
     start_time = time( NULL );
     tt1        = time( NULL );
     tt2        = time( NULL );
@@ -7394,20 +7439,26 @@ usage:
             /* capture one packet */
             FD_ZERO( &rfds );
 
-            for(i=0; i<G.num_cards; i++)
+            fdh = 0;
+            for(i = 0; i < G.num_cards; i++)
             {
-                FD_SET( fd_raw[i], &rfds );
+                int fd = fd_raw[i];
+                FD_SET( fd, &rfds );
+                if (fd > fdh)
+                    fdh = fd;
             }
 
-            n = fdh + 1;
 #ifndef DISABLE_INJECT_HOOK
 
-            if(fifo_fd > 0)
+            for (i = LISTEN_SOCKET; i < MAX_CONNECTIONS; ++i)
             {
-                FD_SET( fifo_fd, &rfds );
-
-                if (fifo_fd > fdh)
-                    n = fifo_fd + 1;
+                int fd = connection_fds[i];
+                if (fd >= 0)
+                {
+                    FD_SET( fd, &rfds );
+                    if (fd > fdh)
+                        fdh = fd;
+                }
             }
 
 #endif
@@ -7415,7 +7466,8 @@ usage:
             tv0.tv_usec = (G.update_s == 0) ? REFRESH_RATE : 0;
             gettimeofday( &tv1, NULL );
 
-            if( select( n, &rfds, NULL, NULL, &tv0 ) < 0 )
+
+            if( select( fdh + 1, &rfds, NULL, NULL, &tv0 ) < 0 )
             {
                 if( errno == EINTR )
                 {
@@ -7427,7 +7479,7 @@ usage:
 
                 perror( "select failed" );
                 /* Restore terminal */
-                fprintf( stderr, "\33[?25h" );
+                if (!G.quiet) fprintf( stderr, "\33[?25h" );
                 fflush( stdout );
                 return( 1 );
             }
@@ -7458,7 +7510,7 @@ usage:
 
             /* display the list of access points we have */
 
-            if(!G.do_pause)
+            if(!G.do_pause && !G.quiet)
             {
                 pthread_mutex_lock( &(G.mx_print) );
                 fprintf( stderr, "\33[1;1H" );
@@ -7474,31 +7526,81 @@ usage:
         if(G.s_file == NULL && G.s_iface != NULL)
         {
             fd_is_set = 0;
+
 #ifndef DISABLE_INJECT_HOOK
 
-            if ( FD_ISSET(fifo_fd, &rfds) )
+            // poll for incoming data (and sockets closed) before accepting new connections
+            for (i = LISTEN_SOCKET + 1; i < MAX_CONNECTIONS; ++i)
             {
-                struct msghdr msg;
-                struct iovec  iov[1];
-                unsigned char data[256],cmsg[64];
+                int fd = connection_fds[i];
 
-                iov[0].iov_base    = data;          /* Starting address */
-                iov[0].iov_len     = sizeof(data);  /* Number of bytes to transfer */
-
-                msg.msg_name       = NULL;          /* optional address */
-                msg.msg_namelen    = 0;             /* size of address */
-                msg.msg_iov        = iov;           /* scatter/gather array */
-                msg.msg_iovlen     = 1;             /* # elements in msg_iov */
-                msg.msg_control    = cmsg;          /* ancillary data, see below */
-                msg.msg_controllen = sizeof(cmsg);  /* ancillary data buffer len */
-                msg.msg_flags      = 0;             /* flags on received message */
-
-                /* receive a packet to inject into the log */
-                n = recvmsg(fifo_fd, &msg, MSG_DONTWAIT);
-
-                if (n > 0)
+                if (fd >= 0
+                 && FD_ISSET(fd, &rfds))
                 {
-                    write_one_packet(data, n, 0);
+                    // data waiting, attempt to receive the message
+                    struct msghdr msg;
+                    struct iovec iov[1];
+                    unsigned char data[1536], cmsg[64];
+
+                    msg.msg_name = NULL;                /* optional address */
+                    msg.msg_namelen = 0;                /* size of address */
+
+                    iov[0].iov_base = data;             /* Starting address */
+                    iov[0].iov_len = sizeof(data);      /* Number of bytes to transfer */
+                    msg.msg_iov = iov;                  /* scatter/gather array */
+                    msg.msg_iovlen = 1;                 /* # elements in msg_iov */
+
+                    msg.msg_control = cmsg;             /* ancillary data, see below */
+                    msg.msg_controllen = sizeof(cmsg);  /* ancillary data buffer len */
+                    msg.msg_flags = 0;                  /* flags on received message */
+
+                    /* receive a message to inject into the log */
+                    n = recvmsg( fd, &msg, MSG_DONTWAIT );
+
+                    switch (n)
+                    {
+                        case -1:
+                            fprintf(stderr, "### recvmsg error (%d: %s)\n", errno, strerror(errno));
+                            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                                break; // 'soft' error - told there was data, but none when we looked
+                            /* other errors - deliberately fall through to close & free the fd */
+                        case 0:
+                            close( fd );
+                            connection_fds[i] = -1;
+                            break;
+
+                        default:
+                            if (n > 0) {
+                                write_one_packet(data, n, 0);
+                            }
+                            else fprintf( stderr, "### recvmsg returned unexpected value (%d)\n", n);
+                            break;
+                    }
+                }
+            }
+
+            /* accept incoming connection requests */
+            if ( connection_fds[LISTEN_SOCKET] >= 0
+              && FD_ISSET( connection_fds[LISTEN_SOCKET], &rfds ) )
+            {   // so something is trying to connect...
+                // look for an open slot to stash the new connection
+                for (i = LISTEN_SOCKET + 1; i < MAX_CONNECTIONS; ++i) {
+                    if (connection_fds[i] < 0)
+                        break;
+                }
+                if (i < MAX_CONNECTIONS)
+                {   // found an open slot
+                    // so accept the connection and stash it there
+                    int new_fd = accept(connection_fds[LISTEN_SOCKET], NULL, NULL);
+                    if (new_fd != -1) {
+                        connection_fds[i] = new_fd;
+                    } else {
+                        fprintf( stderr, "### failed to accept incoming connection (%d: %s)\n", errno, strerror(errno) );
+                    }
+                }
+                else
+                { // no room at the inn
+                    fprintf( stderr, "### all slots full, cannot accept new connection\n" );
                 }
             }
 
@@ -7533,7 +7635,8 @@ usage:
                         {
                             printf("Can't reopen %s\n", ifnam);
                             /* Restore terminal */
-                            fprintf( stderr, "\33[?25h" );
+                            if (!G.quiet)
+                                fprintf( stderr, "\33[?25h" );
                             fflush( stdout );
                             exit(1);
                         }
@@ -7689,7 +7792,12 @@ usage:
         }
     }
 
-    fprintf( stderr, "\33[?25h" );
+#ifndef DISABLE_INJECT_HOOK
+    cleanup_inject_hook( connection_fds[LISTEN_SOCKET] );
+#endif
+
+    if (!G.quiet)
+        fprintf( stderr, "\33[?25h" );
     fflush( stdout );
     return( 0 );
 }

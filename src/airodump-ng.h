@@ -461,6 +461,7 @@ struct globals
     int mark_cur_ap;
     int num_cards;
     int skip_columns;
+    int quiet;
     int do_pause;
     int do_sort_always;
     

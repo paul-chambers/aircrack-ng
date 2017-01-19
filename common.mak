@@ -207,7 +207,7 @@ CXXFLAGS	= $(CFLAGS) $(ASMFLAG) -fdata-sections -ffunction-sections
 
 CFLAGS          += $(OPTFLAGS) $(REVFLAGS) $(COMMON_CFLAGS)
 
-prefix          = /usr/local
+prefix          = /usr
 bindir          = $(prefix)/bin
 sbindir         = $(prefix)/sbin
 mandir          = $(prefix)/share/man/man1
