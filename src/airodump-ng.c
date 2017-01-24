@@ -73,6 +73,7 @@
 #include "osdep/osdep.h"
 #include "airodump-ng.h"
 #include "osdep/common.h"
+#include "osdep/radiotap/radiotap.h"
 #include "common.h"
 
 // libgcrypt thread callback definition for libgcrypt < 1.6.0
@@ -88,6 +89,7 @@ extern int is_string_number(const char * str);
 void dump_sort( void );
 void dump_print( int ws_row, int ws_col, int if_num );
 
+#define PACKED __attribute__ ((packed))
 
 #ifndef DISABLE_INJECT_HOOK
 
@@ -1098,7 +1100,7 @@ int dump_initialize( char *prefix, int ivs_only )
         pfh.thiszone        = 0;
         pfh.sigfigs         = 0;
         pfh.snaplen         = 65535;
-        pfh.linktype        = LINKTYPE_IEEE802_11;
+        pfh.linktype        = LINKTYPE_RADIOTAP_HDR;
 
         if( fwrite( &pfh, 1, sizeof( pfh ), G.f_cap ) !=
                 (size_t) sizeof( pfh ) )
@@ -1386,37 +1388,80 @@ int remove_namac(unsigned char* mac)
 /*
     factored out of dump_add_packet
 */
-int write_one_packet( unsigned char *raw_pkt, int caplen, int ri_power )
+int write_one_packet( void *raw_pkt, size_t caplen, struct rx_info *ri )
 {
-    int                 n;
-    struct pcap_pkthdr  pkh;
-    struct timeval      tv;
-
     if ( G.f_cap != NULL && caplen >= 10 )
     {
-        pkh.caplen = pkh.len = caplen;
+        struct header {
+            struct pcap_pkthdr  pkh;
+            struct radiotap {
+                struct ieee80211_radiotap_header  preamble;
+                uint64_t    tsft;
+                uint8_t     rate;
+                uint8_t     pad_rate;
+                uint16_t    channel_freq, channel_flags;
+                uint8_t     signal;
+                uint8_t     pad_signal;
+            } PACKED radiotap;
+        } PACKED header;
+
+        struct timeval      tv;
+        size_t              hdrLen;
+
+        memset( &header, 0, sizeof(struct header) );
+
+        /* PCAP record header - always present */
         gettimeofday( &tv, NULL );
-        pkh.tv_sec  =   tv.tv_sec;
-        pkh.tv_usec = ( tv.tv_usec & ~0x1ff ) + (ri_power << 6);
+        header.pkh.tv_sec  = tv.tv_sec;
+        header.pkh.tv_usec = tv.tv_usec;
 
-        n = sizeof( pkh );
+        header.radiotap.preamble.it_version = 0;
 
-        if ( fwrite( &pkh, 1, n, G.f_cap ) != (size_t) n )
+        /* FIXME: the following code assumes a little-endian processor */
+
+        if (ri == NULL) // were we passed radiotap info?
         {
-            perror( "fwrite(packet header) failed" );
-            return( 1 );
+            // No, so create an 'empty' radiotap header
+            header.radiotap.preamble.it_len = sizeof( struct ieee80211_radiotap_header );
+            header.radiotap.preamble.it_present = 0; // no bits set == no additional data follows
+
+            hdrLen = sizeof( struct pcap_pkthdr ) + sizeof( struct ieee80211_radiotap_header ); // smaller than header
+        }
+        else
+        {
+            // Yes, so create a radiotap header as best we can with what we have.
+            // See linux_read() in osdep/linux.c to see how rx_info is populated
+            header.radiotap.preamble.it_len     = sizeof( struct radiotap ); // preamble + data
+            header.radiotap.preamble.it_present = (1 << IEEE80211_RADIOTAP_TSFT)
+                                                | (1 << IEEE80211_RADIOTAP_RATE)
+                                                | (1 << IEEE80211_RADIOTAP_CHANNEL)
+                                                | (1 << IEEE80211_RADIOTAP_DBM_ANTSIGNAL);
+
+            header.radiotap.tsft           = ri->ri_mactime;
+            header.radiotap.rate           = ri->ri_rate / 500000; // units of 500kps
+            header.radiotap.channel_freq   = getFrequencyFromChannel( ri->ri_channel ); // reverse the conversion
+            header.radiotap.channel_flags  = (ri->ri_channel < 20) ? IEEE80211_CHAN_2GHZ : IEEE80211_CHAN_5GHZ;
+            header.radiotap.signal         = ri->ri_power;
+
+            hdrLen = sizeof( struct header );
         }
 
+	/* exclude the length of the pcap record header from the length reported in it */
+        header.pkh.caplen  = hdrLen - sizeof( struct pcap_pkthdr ) + caplen;
+        header.pkh.len     = header.pkh.caplen;
+
+        if ( fwrite( &header, 1, hdrLen, G.f_cap ) != hdrLen )
+        {
+            perror( "### failed to write packet header" );
+            return( 1 );
+        }
         fflush( stdout );
 
-        n = pkh.caplen;
-
-        if ( fwrite( raw_pkt, 1, n, G.f_cap ) != (size_t) n )
+        if ( fwrite( raw_pkt, 1, caplen, G.f_cap ) != caplen )
         {
-            perror( "fwrite(packet data) failed" );
+            perror( "### failed to write packet data" );
             return( 1 );
         }
-
         fflush( stdout );
     }
 
@@ -2812,7 +2857,7 @@ write_packet:
         }
     }
 
-    return write_one_packet( h80211, caplen, ri->ri_power );
+    return write_one_packet( h80211, caplen, ri );
 }
 
 void dump_sort( void )
@@ -7571,7 +7616,7 @@ usage:
 
                         default:
                             if (n > 0) {
-                                write_one_packet(data, n, 0);
+                                write_one_packet(data, n, NULL);
                             }
                             else fprintf( stderr, "### recvmsg returned unexpected value (%d)\n", n);
                             break;
